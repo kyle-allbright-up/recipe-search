@@ -99,12 +99,31 @@ export default function Home() {
   }, []);
 
   const loadDescription = useCallback(
-    async (key: string, row: Row) => {
-      if (descriptions[key]) return;
+    async (cacheKey: string, row: Row) => {
+      if (descriptions[cacheKey]) return;
+
+      if (typeof window !== "undefined") {
+        const stored = window.localStorage.getItem(
+          `recipe-description:${cacheKey}`
+        );
+        if (stored) {
+          setDescriptions((prev) => ({ ...prev, [cacheKey]: stored }));
+          return;
+        }
+      }
+
       const name = getRecipeName(row, headers);
       const ingredients = getIngredients(row, headers);
       const desc = await fetchDescription(name, ingredients);
-      setDescriptions((prev) => ({ ...prev, [key]: desc }));
+
+      setDescriptions((prev) => ({ ...prev, [cacheKey]: desc }));
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          `recipe-description:${cacheKey}`,
+          desc
+        );
+      }
     },
     [headers, descriptions]
   );
@@ -128,24 +147,35 @@ export default function Home() {
     setAiLoading(true);
     setAiIndices(null);
     try {
-      const recipes = rows.map((row, i) => ({
-        index: i,
-        name: getRecipeName(row, headers),
-        ingredients: getIngredients(row, headers).join(", "),
-      }));
+      const recipes = rows.map((row, i) => {
+        const name = getRecipeName(row, headers);
+        const ingredients = getIngredients(row, headers);
+        const descKey = `${recipeType}:${name}:${ingredients.join("|")}`;
+        return {
+          index: i,
+          name,
+          ingredients: ingredients.join(", "),
+          description: descriptions[descKey] ?? "",
+        };
+      });
       const res = await fetch("/api/meal-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: search, recipes }),
       });
-      const { indices } = await res.json();
-      setAiIndices(Array.isArray(indices) ? indices : []);
+      if (!res.ok) {
+        setAiIndices([]);
+        return;
+      }
+      const data = await res.json();
+      const indices = Array.isArray(data?.indices) ? data.indices : [];
+      setAiIndices(indices);
     } catch {
       setAiIndices([]);
     } finally {
       setAiLoading(false);
     }
-  }, [search, rows, headers]);
+  }, [search, rows, headers, recipeType, descriptions]);
 
   const keywordFiltered = rows
     .map((row, i) => ({ row, index: i }))
@@ -166,10 +196,13 @@ export default function Home() {
     searchMode === "ai" && aiFiltered !== null ? aiFiltered : keywordFiltered;
 
   useEffect(() => {
-    filtered.forEach(({ row, index }) =>
-      loadDescription(`${recipeType}-${index}`, row)
-    );
-  }, [filtered, recipeType, loadDescription]);
+    filtered.forEach(({ row, index }) => {
+      const name = getRecipeName(row, headers);
+      const ingredients = getIngredients(row, headers);
+      const cacheKey = `${recipeType}:${name}:${ingredients.join("|")}`;
+      loadDescription(cacheKey, row);
+    });
+  }, [filtered, recipeType, headers, loadDescription]);
 
   return (
     <div className={styles.page}>
@@ -269,23 +302,24 @@ export default function Home() {
           )}
           <ul className={styles.cardList}>
             {filtered.map(({ row, index }) => {
-              const key = `${recipeType}-${index}`;
               const name = getRecipeName(row, headers);
               const ingredients = getIngredients(row, headers);
-              const isExpanded = expandedKey === key;
+              const cardKey = `${recipeType}-${index}`;
+              const descKey = `${recipeType}:${name}:${ingredients.join("|")}`;
+              const isExpanded = expandedKey === cardKey;
 
               return (
-                <li key={key} className={styles.card}>
+                <li key={cardKey} className={styles.card}>
                   <button
                     type="button"
                     className={styles.cardButton}
                     onClick={() =>
-                      setExpandedKey(isExpanded ? null : key)
+                      setExpandedKey(isExpanded ? null : cardKey)
                     }
                   >
                     <h3 className={styles.cardTitle}>{name}</h3>
                     <p className={styles.cardDesc}>
-                      {descriptions[key] ?? (
+                      {descriptions[descKey] ?? (
                         <span className={styles.loading}>
                           Generating description…
                         </span>
