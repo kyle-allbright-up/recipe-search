@@ -10,8 +10,9 @@ type DescriptionCache = Record<string, string>;
 async function readCache(): Promise<DescriptionCache> {
   try {
     const result = await get(CACHE_PATH, { access: "private" });
-    if (!result?.blob) return {};
-    const text = await result.blob.text();
+    const blob: any = (result as any).blob;
+    if (!blob) return {};
+    const text = await blob.text();
     return text ? (JSON.parse(text) as DescriptionCache) : {};
   } catch {
     return {};
