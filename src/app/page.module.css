@@ -229,33 +229,6 @@
   cursor: not-allowed;
 }
 
-.uploadRow {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.uploadRow label {
-  cursor: pointer;
-}
-
-.saveBtn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--button-secondary-border);
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.saveBtn:hover {
-  background: var(--button-secondary-hover);
-}
-
 .searchInput {
   flex: 1;
   min-width: 200px;
@@ -316,7 +289,7 @@ a.secondary {
 
 @media (max-width: 600px) {
   .main {
-    padding: 48px 24px;
+    padding: 32px 16px;
   }
 
   .intro {
@@ -327,6 +300,29 @@ a.secondary {
     font-size: 32px;
     line-height: 40px;
     letter-spacing: -1.92px;
+  }
+
+  .toggleRow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .searchModeRow {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .searchInputRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchInput {
+    max-width: 100%;
+  }
+
+  .cardButton {
+    padding: 16px;
   }
 }
 

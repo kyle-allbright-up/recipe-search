@@ -81,63 +81,22 @@ export default function Home() {
   useEffect(() => {
     async function load() {
       setLoadError(null);
-      try {
-        const res = await fetch("/api/recipes");
-        const { food: foodUrl, drinks: drinksUrl } = await res.json();
+      const [food, drinks] = await Promise.all([
+        fetchCsv("/recipes/food.csv"),
+        fetchCsv("/recipes/drinks.csv"),
+      ]);
 
-        const urls = {
-          food: foodUrl || "/recipes/food.csv",
-          drinks: drinksUrl || "/recipes/drinks.csv",
-        };
+      setFoodRows(food);
+      setDrinksRows(drinks);
 
-        const [food, drinks] = await Promise.all([
-          fetchCsv(urls.food),
-          fetchCsv(urls.drinks),
-        ]);
-
-        if (food.length > 0) setFoodRows(food);
-        if (drinks.length > 0) setDrinksRows(drinks);
-      } catch (e) {
-        setLoadError("Could not load recipes.");
+      if (food.length === 0 && drinks.length === 0) {
+        setLoadError(
+          "No recipes found. Add food.csv and drinks.csv under public/recipes/ in the project."
+        );
       }
     }
     load();
   }, []);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setDescriptions({});
-    setExpandedKey(null);
-    setAiIndices(null);
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const data = (results.data as Row[]) || [];
-        if (recipeType === "food") setFoodRows(data);
-        else setDrinksRows(data);
-      },
-    });
-    e.target.value = "";
-  };
-
-  const handleSavePermanently = async () => {
-    const data = recipeType === "food" ? foodRows : drinksRows;
-    if (data.length === 0) return;
-    const csv = Papa.unparse(data);
-    const blob = new Blob([csv], { type: "text/csv" });
-    const file = new File([blob], `${recipeType}.csv`, { type: "text/csv" });
-    const form = new FormData();
-    form.append("file", file);
-    form.append("type", recipeType);
-    const res = await fetch("/api/recipes", {
-      method: "POST",
-      body: form,
-    });
-    if (res.ok) alert("Saved permanently!");
-    else alert("Save failed. Check BLOB_READ_WRITE_TOKEN.");
-  };
 
   const loadDescription = useCallback(
     async (key: string, row: Row) => {
@@ -293,35 +252,14 @@ export default function Home() {
           </div>
         </div>
 
-        <div className={styles.uploadRow}>
-          <label>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={handleFileUpload}
-              style={{ marginRight: 12 }}
-            />
-            Upload CSV ({recipeType})
-          </label>
-          {rows.length > 0 && (
-            <button
-              type="button"
-              className={styles.saveBtn}
-              onClick={handleSavePermanently}
-            >
-              Save permanently
-            </button>
-          )}
-        </div>
-
         <div className={styles.results}>
           {loadError && (
             <p className={styles.hint}>{loadError}</p>
           )}
           {!loadError && foodRows.length === 0 && drinksRows.length === 0 && (
             <p className={styles.hint}>
-              Upload a CSV to get started, or add food.csv and drinks.csv to
-              public/recipes/ for persistent storage.
+              Add food.csv and drinks.csv under public/recipes/ in the project
+              to get started.
             </p>
           )}
           {rows.length > 0 && (
