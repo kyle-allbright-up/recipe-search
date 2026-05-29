@@ -1,0 +1,278 @@
+.wrap {
+  min-height: 100vh;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  font-family: var(--font-geist-sans);
+  color: #111;
+  background: #fafafa;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #666;
+  max-width: 520px;
+  line-height: 1.5;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.link {
+  font: inherit;
+  font-size: 13px;
+  color: #555;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  padding: 6px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover {
+  background: #f4f4f4;
+}
+
+.empty {
+  padding: 48px;
+  text-align: center;
+  color: #666;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px dashed #e5e5e5;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #ebebeb;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cardHeader {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.cardMeta {
+  margin: 0;
+  font-size: 12px;
+  color: #777;
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
+}
+
+.restoreBtn,
+.deleteBtn,
+.cancelBtn {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.restoreBtn {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.restoreBtn:hover:not(:disabled) {
+  background: #d1fae5;
+}
+
+.deleteBtn {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.deleteBtn:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.deleteBtn:disabled,
+.restoreBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancelBtn {
+  background: #fff;
+  border-color: #e5e5e5;
+  color: #555;
+}
+
+.cancelBtn:hover:not(:disabled) {
+  background: #f4f4f4;
+}
+
+.deletePanel {
+  border-top: 1px solid #ebebeb;
+  background: #fff7f7;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deleteWarn {
+  margin: 0;
+  font-size: 13px;
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.deleteInput {
+  padding: 8px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+}
+
+.deleteInput:focus {
+  outline: 2px solid #b91c1c;
+  outline-offset: -1px;
+}
+
+.deleteError {
+  margin: 0;
+  font-size: 12px;
+  color: #991b1b;
+  background: #fee2e2;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.deleteActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .wrap {
+    background: #000;
+    color: #ededed;
+  }
+  .subtitle {
+    color: #999;
+  }
+  .link {
+    background: #0a0a0a;
+    border-color: #1a1a1a;
+    color: #bbb;
+  }
+  .link:hover {
+    background: #161616;
+  }
+  .badge {
+    background: #422006;
+    color: #fbbf24;
+  }
+  .empty {
+    background: #0a0a0a;
+    color: #999;
+    border-color: #1a1a1a;
+  }
+  .card {
+    background: #0a0a0a;
+    border-color: #1a1a1a;
+  }
+  .cardMeta {
+    color: #888;
+  }
+  .restoreBtn {
+    background: #052e16;
+    border-color: #14532d;
+    color: #6ee7b7;
+  }
+  .restoreBtn:hover:not(:disabled) {
+    background: #064e2a;
+  }
+  .deleteBtn {
+    background: #1f0a0a;
+    border-color: #7f1d1d;
+    color: #fca5a5;
+  }
+  .deleteBtn:hover:not(:disabled) {
+    background: #2a0e0e;
+  }
+  .cancelBtn {
+    background: #0a0a0a;
+    border-color: #1a1a1a;
+    color: #bbb;
+  }
+  .cancelBtn:hover:not(:disabled) {
+    background: #161616;
+  }
+  .deletePanel {
+    background: #1a0a0a;
+    border-color: #1a1a1a;
+  }
+  .deleteWarn {
+    color: #fca5a5;
+  }
+  .deleteInput {
+    background: #0a0a0a;
+    border-color: #7f1d1d;
+    color: #ededed;
+  }
+}

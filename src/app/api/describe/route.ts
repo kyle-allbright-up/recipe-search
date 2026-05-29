@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { get, put } from "@vercel/blob";
+import { head, put } from "@vercel/blob";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CACHE_PATH = "recipes/description-cache.json";
@@ -8,11 +8,13 @@ const CACHE_PATH = "recipes/description-cache.json";
 type DescriptionCache = Record<string, string>;
 
 async function readCache(): Promise<DescriptionCache> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return {};
   try {
-    const result = await get(CACHE_PATH, { access: "private" });
-    const blob: any = (result as any).blob;
-    if (!blob) return {};
-    const text = await blob.text();
+    const meta = await head(CACHE_PATH);
+    if (!meta?.url) return {};
+    const res = await fetch(meta.url, { cache: "no-store" });
+    if (!res.ok) return {};
+    const text = await res.text();
     return text ? (JSON.parse(text) as DescriptionCache) : {};
   } catch {
     return {};
@@ -20,9 +22,10 @@ async function readCache(): Promise<DescriptionCache> {
 }
 
 async function writeCache(cache: DescriptionCache): Promise<void> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   try {
     await put(CACHE_PATH, JSON.stringify(cache), {
-      access: "private",
+      access: "public",
       contentType: "application/json",
       addRandomSuffix: false,
       allowOverwrite: true,

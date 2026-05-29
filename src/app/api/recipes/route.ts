@@ -1,54 +1,56 @@
 import { NextResponse } from "next/server";
-import { list, put } from "@vercel/blob";
+import { createRecipe, listRecipes } from "@/lib/store";
+import { normalizeIngredients, normalizeInstructions } from "@/lib/recipes";
+import { getActor } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return NextResponse.json({ food: null, drinks: null });
-  }
-  try {
-    const { blobs } = await list({ prefix: "recipes/" });
-    const food = blobs.find((b) => b.pathname === "recipes/food.csv");
-    const drinks = blobs.find((b) => b.pathname === "recipes/drinks.csv");
-    return NextResponse.json({
-      food: food?.url ?? null,
-      drinks: drinks?.url ?? null,
-    });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ food: null, drinks: null });
-  }
+  const recipes = await listRecipes();
+  return NextResponse.json({ recipes });
 }
 
 export async function POST(request: Request) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return NextResponse.json(
-      { error: "BLOB_READ_WRITE_TOKEN not configured" },
-      { status: 500 }
-    );
+  const actor = await getActor();
+  if (!actor) {
+    return NextResponse.json({ error: "Admin login required." }, { status: 401 });
   }
+  let body: unknown;
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File;
-    const type = formData.get("type") as string;
-    if (!file || !type || !["food", "drinks"].includes(type)) {
-      return NextResponse.json(
-        { error: "Missing file or invalid type (use food or drinks)" },
-        { status: 400 }
-      );
-    }
-    const pathname = `recipes/${type}.csv`;
-    const blob = await put(pathname, file, {
-      access: "public",
-      contentType: "text/csv",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
-    return NextResponse.json({ url: blob.url });
-  } catch (err) {
-    console.error(err);
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid body." }, { status: 400 });
+  }
+  const draft = body as Record<string, unknown>;
+  const name = String(draft.name ?? "").trim();
+  const type = draft.type === "drinks" ? "drinks" : draft.type === "food" ? "food" : null;
+  if (!name || !type) {
     return NextResponse.json(
-      { error: "Upload failed" },
-      { status: 500 }
+      { error: "name and type ('food' or 'drinks') are required." },
+      { status: 400 }
     );
   }
+  const recipe = await createRecipe(
+    {
+      type,
+      name,
+      ingredients: normalizeIngredients(
+        Array.isArray(draft.ingredients)
+          ? (draft.ingredients as string[])
+          : String(draft.ingredients ?? "")
+      ),
+      instructions: normalizeInstructions(String(draft.instructions ?? "")),
+      comments: String(draft.comments ?? "").trim(),
+      sourceUrl: draft.sourceUrl ? String(draft.sourceUrl).trim() || undefined : undefined,
+      category: String(draft.category ?? "").trim(),
+      tried: Boolean(draft.tried),
+      greenBook: Boolean(draft.greenBook),
+    },
+    actor
+  );
+  return NextResponse.json({ recipe }, { status: 201 });
 }

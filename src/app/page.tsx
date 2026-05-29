@@ -1,41 +1,35 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
-import Papa from "papaparse";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import Link from "next/link";
 import styles from "./page.module.css";
+import type { Recipe, RecipeType } from "@/lib/recipes";
 
-type Row = Record<string, string>;
+type EditDraft = {
+  name: string;
+  category: string;
+  ingredients: string;
+  instructions: string;
+  comments: string;
+  sourceUrl: string;
+  tried: boolean;
+  greenBook: boolean;
+};
 
-function getRecipeName(row: Row, headers: string[]): string {
-  const keys = headers.filter(
-    (h) =>
-      h.toLowerCase().includes("name") ||
-      h.toLowerCase().includes("title") ||
-      h.toLowerCase().includes("recipe")
-  );
-  for (const k of keys) {
-    const v = row[k]?.trim();
-    if (v) return v;
-  }
-  return headers[0] ? row[headers[0]] ?? "Untitled Recipe" : "Untitled Recipe";
+function recipeToDraft(r: Recipe): EditDraft {
+  return {
+    name: r.name,
+    category: r.category ?? "",
+    ingredients: r.ingredients.join("\n"),
+    instructions: r.instructions ?? "",
+    comments: r.comments ?? "",
+    sourceUrl: r.sourceUrl ?? "",
+    tried: !!r.tried,
+    greenBook: !!r.greenBook,
+  };
 }
 
-function getIngredients(row: Row, headers: string[]): string[] {
-  const keys = headers.filter((h) =>
-    h.toLowerCase().includes("ingredient")
-  );
-  let raw = "";
-  for (const k of keys) raw += (row[k] ?? "") + "\n";
-  return raw
-    .split(/[\n,;]|\s+and\s+/i)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-async function fetchDescription(
-  name: string,
-  ingredients: string[]
-): Promise<string> {
+async function fetchDescription(name: string, ingredients: string[]): Promise<string> {
   try {
     const res = await fetch("/api/describe", {
       method: "POST",
@@ -50,170 +44,252 @@ async function fetchDescription(
   }
 }
 
-async function fetchCsv(url: string): Promise<Row[]> {
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const text = await res.text();
-  return new Promise((resolve) => {
-    Papa.parse(text, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => resolve((results.data as Row[]) || []),
-    });
-  });
-}
-
 export default function Home() {
-  const [foodRows, setFoodRows] = useState<Row[]>([]);
-  const [drinksRows, setDrinksRows] = useState<Row[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actor, setActor] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
   const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
-  const [recipeType, setRecipeType] = useState<"food" | "drinks">("food");
+  const [recipeType, setRecipeType] = useState<RecipeType>("food");
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [aiIndices, setAiIndices] = useState<number[] | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [aiIndices, setAiIndices] = useState<string[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
-  const rows = recipeType === "food" ? foodRows : drinksRows;
-  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
-
-  useEffect(() => {
-    async function load() {
-      setLoadError(null);
-      const [food, drinks] = await Promise.all([
-        fetchCsv("/recipes/food.csv"),
-        fetchCsv("/recipes/drinks.csv"),
-      ]);
-
-      setFoodRows(food);
-      setDrinksRows(drinks);
-
-      if (food.length === 0 && drinks.length === 0) {
-        setLoadError(
-          "No recipes found. Add food.csv and drinks.csv under public/recipes/ in the project."
-        );
+  const reloadRecipes = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/recipes", { cache: "no-store" });
+      if (!res.ok) {
+        setLoadError("Failed to load recipes.");
+        return;
       }
+      const { recipes: list } = (await res.json()) as { recipes: Recipe[] };
+      setRecipes(list);
+    } catch {
+      setLoadError("Failed to load recipes.");
     }
-    load();
   }, []);
 
-  const loadDescription = useCallback(
-    async (cacheKey: string, row: Row) => {
-      if (descriptions[cacheKey]) return;
+  useEffect(() => {
+    reloadRecipes();
+  }, [reloadRecipes]);
 
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setActor(d?.actor ?? null))
+      .catch(() => setActor(null));
+  }, []);
+
+  const typedRecipes = useMemo(
+    () => recipes.filter((r) => r.type === recipeType),
+    [recipes, recipeType]
+  );
+
+  const loadDescription = useCallback(
+    async (recipe: Recipe) => {
+      if (descriptions[recipe.id]) return;
       if (typeof window !== "undefined") {
-        const stored = window.localStorage.getItem(
-          `recipe-description:${cacheKey}`
-        );
+        const stored = window.localStorage.getItem(`recipe-description:${recipe.id}`);
         if (stored) {
-          setDescriptions((prev) => ({ ...prev, [cacheKey]: stored }));
+          setDescriptions((prev) => ({ ...prev, [recipe.id]: stored }));
           return;
         }
       }
-
-      const name = getRecipeName(row, headers);
-      const ingredients = getIngredients(row, headers);
-      const desc = await fetchDescription(name, ingredients);
-
-      setDescriptions((prev) => ({ ...prev, [cacheKey]: desc }));
-
+      const desc = await fetchDescription(recipe.name, recipe.ingredients);
+      setDescriptions((prev) => ({ ...prev, [recipe.id]: desc }));
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          `recipe-description:${cacheKey}`,
-          desc
-        );
+        window.localStorage.setItem(`recipe-description:${recipe.id}`, desc);
       }
     },
-    [headers, descriptions]
+    [descriptions]
   );
 
-  const nameKeys = headers.filter(
-    (h) =>
-      h.toLowerCase().includes("name") ||
-      h.toLowerCase().includes("title") ||
-      h.toLowerCase().includes("recipe")
+  const keywordTerms = useMemo(
+    () =>
+      search
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean),
+    [search]
   );
-  const ingredientKeys = headers.filter((h) =>
-    h.toLowerCase().includes("ingredient")
-  );
-  const searchKeys =
-    [...nameKeys, ...ingredientKeys].length > 0
-      ? [...nameKeys, ...ingredientKeys]
-      : headers;
+
+  const keywordFiltered = useMemo(() => {
+    if (keywordTerms.length === 0) return typedRecipes;
+    return typedRecipes.filter((r) => {
+      const haystack = [
+        r.name,
+        r.ingredients.join(" \n "),
+        r.instructions,
+        r.comments,
+        r.category,
+      ]
+        .join(" \n ")
+        .toLowerCase();
+      return keywordTerms.every((term) => haystack.includes(term));
+    });
+  }, [keywordTerms, typedRecipes]);
+
+  const aiFiltered = useMemo(() => {
+    if (searchMode !== "ai" || aiIndices === null) return null;
+    const map = new Map(typedRecipes.map((r) => [r.id, r]));
+    return aiIndices.map((id) => map.get(id)).filter((r): r is Recipe => Boolean(r));
+  }, [searchMode, aiIndices, typedRecipes]);
+
+  const filtered = searchMode === "ai" && aiFiltered !== null ? aiFiltered : keywordFiltered;
+
+  useEffect(() => {
+    filtered.forEach((r) => loadDescription(r));
+  }, [filtered, loadDescription]);
 
   const runAiSearch = useCallback(async () => {
-    if (!search.trim() || rows.length === 0) return;
+    if (!search.trim() || typedRecipes.length === 0) return;
     setAiLoading(true);
     setAiIndices(null);
     try {
-      const recipes = rows.map((row, i) => {
-        const name = getRecipeName(row, headers);
-        const ingredients = getIngredients(row, headers);
-        const descKey = `${recipeType}:${name}:${ingredients.join("|")}`;
-        return {
-          index: i,
-          name,
-          ingredients: ingredients.join(", "),
-          description: descriptions[descKey] ?? "",
-        };
-      });
+      // We keep the meal-search API contract index-based, but pass our stable
+      // recipe IDs through as "index" so we can map back unambiguously even
+      // after edits/deletes.
+      const payload = typedRecipes.map((r, i) => ({
+        index: i,
+        id: r.id,
+        name: r.name,
+        ingredients: r.ingredients.join(", "),
+        description: descriptions[r.id] ?? "",
+      }));
       const res = await fetch("/api/meal-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: search, recipes }),
+        body: JSON.stringify({ query: search, recipes: payload }),
       });
       if (!res.ok) {
         setAiIndices([]);
         return;
       }
       const data = await res.json();
-      const indices = Array.isArray(data?.indices) ? data.indices : [];
-      setAiIndices(indices);
+      const indices = Array.isArray(data?.indices) ? (data.indices as number[]) : [];
+      const ids = indices.map((i) => payload[i]?.id).filter(Boolean) as string[];
+      setAiIndices(ids);
     } catch {
       setAiIndices([]);
     } finally {
       setAiLoading(false);
     }
-  }, [search, rows, headers, recipeType, descriptions]);
+  }, [search, typedRecipes, descriptions]);
 
-  const keywordTerms = search
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
+  const startEditing = (r: Recipe) => {
+    setEditingId(r.id);
+    setEditDraft(recipeToDraft(r));
+    setExpandedId(r.id);
+  };
 
-  const keywordFiltered = rows
-    .map((row, i) => ({ row, index: i }))
-    .filter(({ row }) => {
-      if (keywordTerms.length === 0) return true;
-      const haystack = searchKeys
-        .map((key) => (row[key] ?? "").toLowerCase())
-        .join(" \n ");
-      return keywordTerms.every((term) => haystack.includes(term));
-    });
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditDraft(null);
+  };
 
-  const aiFiltered =
-    searchMode === "ai" && aiIndices !== null
-      ? aiIndices.map((i) => ({ row: rows[i], index: i })).filter((f) => f.row)
-      : null;
+  const saveEditing = async (id: string) => {
+    if (!editDraft) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/recipes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editDraft.name,
+          category: editDraft.category,
+          ingredients: editDraft.ingredients,
+          instructions: editDraft.instructions,
+          comments: editDraft.comments,
+          sourceUrl: editDraft.sourceUrl,
+          tried: editDraft.tried,
+          greenBook: editDraft.greenBook,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error ?? "Failed to save.");
+        return;
+      }
+      const { recipe: updated } = (await res.json()) as { recipe: Recipe };
+      setRecipes((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setEditingId(null);
+      setEditDraft(null);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
-  const filtered =
-    searchMode === "ai" && aiFiltered !== null ? aiFiltered : keywordFiltered;
+  const softDelete = async (r: Recipe) => {
+    const ok = window.confirm(
+      `Move "${r.name}" to the trash?\n\nIt will be kept safely and can be restored from the Admin panel. To permanently delete a recipe, open the trash and use the multi-step delete flow.`
+    );
+    if (!ok) return;
+    setBusyId(r.id);
+    try {
+      const res = await fetch(`/api/recipes/${r.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error ?? "Delete failed.");
+        return;
+      }
+      setRecipes((prev) => prev.filter((x) => x.id !== r.id));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
-  useEffect(() => {
-    filtered.forEach(({ row, index }) => {
-      const name = getRecipeName(row, headers);
-      const ingredients = getIngredients(row, headers);
-      const cacheKey = `${recipeType}:${name}:${ingredients.join("|")}`;
-      loadDescription(cacheKey, row);
-    });
-  }, [filtered, recipeType, headers, loadDescription]);
+  const generateInstructions = async (r: Recipe) => {
+    setGeneratingId(r.id);
+    try {
+      const res = await fetch(`/api/recipes/${r.id}/instructions`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err?.error ?? "Could not generate instructions.");
+        return;
+      }
+      const { recipe: updated } = (await res.json()) as { recipe: Recipe };
+      setRecipes((prev) => prev.map((x) => (x.id === r.id ? updated : x)));
+    } finally {
+      setGeneratingId(null);
+    }
+  };
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setActor(null);
+  };
 
   return (
     <div className={styles.page}>
       <main className={styles.main}>
-        <div className={styles.intro}>
-          <h1>Recipe Search</h1>
+        <div className={styles.headerRow}>
+          <div className={styles.intro}>
+            <h1>Forkcast</h1>
+          </div>
+          <div className={styles.adminBar}>
+            {actor ? (
+              <>
+                <span className={styles.adminBadge}>Admin · {actor}</span>
+                <Link href="/admin" className={styles.adminLink}>
+                  Trash
+                </Link>
+                <button type="button" className={styles.adminLink} onClick={logout}>
+                  Log out
+                </button>
+              </>
+            ) : (
+              <Link href="/admin/login" className={styles.adminLink}>
+                Admin
+              </Link>
+            )}
+          </div>
         </div>
 
         <div className={styles.toggleRow}>
@@ -291,58 +367,273 @@ export default function Home() {
         </div>
 
         <div className={styles.results}>
-          {loadError && (
-            <p className={styles.hint}>{loadError}</p>
+          {loadError && <p className={styles.hint}>{loadError}</p>}
+          {!loadError && recipes.length === 0 && (
+            <p className={styles.hint}>Loading recipes…</p>
           )}
-          {!loadError && foodRows.length === 0 && drinksRows.length === 0 && (
+          {typedRecipes.length > 0 && (
             <p className={styles.hint}>
-              Add food.csv and drinks.csv under public/recipes/ in the project
-              to get started.
-            </p>
-          )}
-          {rows.length > 0 && (
-            <p className={styles.hint}>
-              {filtered.length} of {rows.length} {recipeType}
+              {filtered.length} of {typedRecipes.length} {recipeType}
             </p>
           )}
           <ul className={styles.cardList}>
-            {filtered.map(({ row, index }) => {
-              const name = getRecipeName(row, headers);
-              const ingredients = getIngredients(row, headers);
-              const cardKey = `${recipeType}-${index}`;
-              const descKey = `${recipeType}:${name}:${ingredients.join("|")}`;
-              const isExpanded = expandedKey === cardKey;
+            {filtered.map((r) => {
+              const isExpanded = expandedId === r.id;
+              const isEditing = editingId === r.id && editDraft;
+              const instructionSteps = r.instructions
+                ? r.instructions.split(/\n+/).filter(Boolean)
+                : [];
 
               return (
-                <li key={cardKey} className={styles.card}>
+                <li key={r.id} className={styles.card}>
                   <button
                     type="button"
                     className={styles.cardButton}
-                    onClick={() =>
-                      setExpandedKey(isExpanded ? null : cardKey)
-                    }
+                    onClick={() => {
+                      if (isEditing) return;
+                      setExpandedId(isExpanded ? null : r.id);
+                    }}
                   >
-                    <h3 className={styles.cardTitle}>{name}</h3>
+                    <h3 className={styles.cardTitle}>{r.name}</h3>
                     <p className={styles.cardDesc}>
-                      {descriptions[descKey] ?? (
-                        <span className={styles.loading}>
-                          Generating description…
-                        </span>
+                      {descriptions[r.id] ?? (
+                        <span className={styles.loading}>Generating description…</span>
                       )}
                     </p>
-                    <span className={styles.expandIcon}>
-                      {isExpanded ? "−" : "+"}
-                    </span>
-                  </button>
-                  {isExpanded && (
-                    <div className={styles.ingredients}>
-                      <h4>Ingredients</h4>
-                      <ul>
-                        {ingredients.map((ing, j) => (
-                          <li key={j}>{ing}</li>
-                        ))}
-                      </ul>
+                    <div className={styles.metaRow}>
+                      {r.category && <span className={styles.metaChip}>{r.category}</span>}
+                      {r.tried && (
+                        <span className={`${styles.metaChip} ${styles.metaChipTried}`}>
+                          Tried
+                        </span>
+                      )}
+                      {r.greenBook && <span className={styles.metaChip}>Green Book</span>}
+                      {r.sourceUrl && <span className={styles.metaChip}>Link recipe</span>}
                     </div>
+                    <span className={styles.expandIcon}>{isExpanded ? "−" : "+"}</span>
+                  </button>
+
+                  {isExpanded && !isEditing && (
+                    <>
+                      {r.sourceUrl && (
+                        <a
+                          className={styles.sourceLink}
+                          href={r.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {r.sourceUrl}
+                        </a>
+                      )}
+                      {r.ingredients.length > 0 && (
+                        <div className={styles.ingredients}>
+                          <h4>Ingredients</h4>
+                          <ul>
+                            {r.ingredients.map((ing, j) => (
+                              <li key={j}>{ing}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className={styles.instructions}>
+                        <h4>Instructions</h4>
+                        {instructionSteps.length > 0 ? (
+                          <ol>
+                            {instructionSteps.map((step, j) => (
+                              <li key={j}>{step.replace(/^\s*\d+[.)]\s*/, "")}</li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className={styles.instructionsEmpty}>
+                            No instructions yet.
+                            {actor
+                              ? r.ingredients.length > 0
+                                ? " Use the admin controls below to generate or write them."
+                                : " Add ingredients first, then generate instructions."
+                              : r.sourceUrl
+                                ? " See the source link above."
+                                : ""}
+                          </p>
+                        )}
+                      </div>
+                      {r.comments && (
+                        <div className={styles.instructions}>
+                          <h4>Notes</h4>
+                          <p style={{ color: "var(--text-secondary)", margin: 0 }}>
+                            {r.comments}
+                          </p>
+                        </div>
+                      )}
+                      {actor && (
+                        <div className={styles.adminControls}>
+                          <button
+                            type="button"
+                            className={styles.iconBtn}
+                            onClick={() => startEditing(r)}
+                          >
+                            Edit
+                          </button>
+                          {r.ingredients.length > 0 && (
+                            <button
+                              type="button"
+                              className={styles.iconBtn}
+                              onClick={() => generateInstructions(r)}
+                              disabled={generatingId === r.id}
+                            >
+                              {generatingId === r.id
+                                ? "Generating…"
+                                : r.instructions
+                                  ? "Regenerate instructions"
+                                  : "Generate instructions"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={`${styles.iconBtn} ${styles.dangerBtn}`}
+                            onClick={() => softDelete(r)}
+                            disabled={busyId === r.id}
+                          >
+                            Move to trash
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {isEditing && editDraft && (
+                    <form
+                      className={styles.editForm}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        saveEditing(r.id);
+                      }}
+                    >
+                      <div className={styles.formField}>
+                        <label className={styles.formLabel}>Name</label>
+                        <input
+                          className={styles.formInput}
+                          value={editDraft.name}
+                          onChange={(e) =>
+                            setEditDraft({ ...editDraft, name: e.target.value })
+                          }
+                          required
+                        />
+                      </div>
+                      <div className={styles.formRow}>
+                        <div className={styles.formField} style={{ flex: 1, minWidth: 160 }}>
+                          <label className={styles.formLabel}>Category</label>
+                          <input
+                            className={styles.formInput}
+                            value={editDraft.category}
+                            onChange={(e) =>
+                              setEditDraft({ ...editDraft, category: e.target.value })
+                            }
+                            placeholder="Entree, Side, Cocktail…"
+                          />
+                        </div>
+                        <div className={styles.formField} style={{ flex: 1, minWidth: 160 }}>
+                          <label className={styles.formLabel}>Source URL (optional)</label>
+                          <input
+                            className={styles.formInput}
+                            value={editDraft.sourceUrl}
+                            onChange={(e) =>
+                              setEditDraft({ ...editDraft, sourceUrl: e.target.value })
+                            }
+                            placeholder="https://…"
+                          />
+                        </div>
+                      </div>
+                      <div className={styles.formField}>
+                        <label className={styles.formLabel}>Ingredients (one per line)</label>
+                        <textarea
+                          className={styles.formTextarea}
+                          value={editDraft.ingredients}
+                          onChange={(e) =>
+                            setEditDraft({ ...editDraft, ingredients: e.target.value })
+                          }
+                          rows={8}
+                        />
+                      </div>
+                      <div className={styles.formField}>
+                        <label className={styles.formLabel}>Instructions</label>
+                        <textarea
+                          className={styles.formTextarea}
+                          value={editDraft.instructions}
+                          onChange={(e) =>
+                            setEditDraft({ ...editDraft, instructions: e.target.value })
+                          }
+                          rows={10}
+                        />
+                      </div>
+                      <div className={styles.formField}>
+                        <label className={styles.formLabel}>Notes</label>
+                        <textarea
+                          className={styles.formTextarea}
+                          value={editDraft.comments}
+                          onChange={(e) =>
+                            setEditDraft({ ...editDraft, comments: e.target.value })
+                          }
+                          rows={3}
+                        />
+                      </div>
+                      <div className={styles.formRow}>
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 13,
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editDraft.tried}
+                            onChange={(e) =>
+                              setEditDraft({ ...editDraft, tried: e.target.checked })
+                            }
+                          />
+                          Tried
+                        </label>
+                        {r.type === "drinks" && (
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              fontSize: 13,
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={editDraft.greenBook}
+                              onChange={(e) =>
+                                setEditDraft({ ...editDraft, greenBook: e.target.checked })
+                              }
+                            />
+                            Green Book
+                          </label>
+                        )}
+                      </div>
+                      <div className={styles.formActions}>
+                        <button
+                          type="button"
+                          className={styles.iconBtn}
+                          onClick={cancelEditing}
+                          disabled={busyId === r.id}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className={styles.iconBtn}
+                          disabled={busyId === r.id}
+                        >
+                          {busyId === r.id ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </form>
                   )}
                 </li>
               );
