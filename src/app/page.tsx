@@ -177,14 +177,19 @@ export default function Home() {
     }
   }, [search, rows, headers, recipeType, descriptions]);
 
+  const keywordTerms = search
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+
   const keywordFiltered = rows
     .map((row, i) => ({ row, index: i }))
     .filter(({ row }) => {
-      if (!search.trim()) return true;
-      const term = search.toLowerCase();
-      return searchKeys.some((key) =>
-        (row[key] ?? "").toLowerCase().includes(term)
-      );
+      if (keywordTerms.length === 0) return true;
+      const haystack = searchKeys
+        .map((key) => (row[key] ?? "").toLowerCase())
+        .join(" \n ");
+      return keywordTerms.every((term) => haystack.includes(term));
     });
 
   const aiFiltered =
@@ -260,7 +265,7 @@ export default function Home() {
               placeholder={
                 searchMode === "ai"
                   ? "e.g. light lunch, comfort food, quick weeknight dinner..."
-                  : "Search by name or ingredients..."
+                  : "Search by name or ingredients (comma-separate, e.g. chicken, garlic, lemon)..."
               }
               value={search}
               onChange={(e) => {
