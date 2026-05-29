@@ -241,6 +241,88 @@
   color: var(--text-primary);
 }
 
+.chipInputWrap {
+  flex: 1;
+  min-width: 240px;
+  max-width: 520px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--button-secondary-border);
+  border-radius: 8px;
+  background: var(--foreground);
+  min-height: 48px;
+}
+
+.chipInputWrap:focus-within {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -1px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #c7d2fe;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  border: none;
+  background: transparent;
+  color: #4338ca;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.chipRemove:hover {
+  background: rgba(79, 70, 229, 0.15);
+}
+
+.chipDraftInput {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 15px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.chipClearAll {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.chipClearAll:hover {
+  background: var(--button-secondary-hover);
+  color: var(--text-primary);
+}
+
 .ctas {
   display: flex;
   flex-direction: row;
@@ -568,5 +650,23 @@ a.secondary {
     background: #052e16;
     border-color: #14532d;
     color: #86efac;
+  }
+
+  .chipInputWrap:focus-within {
+    outline-color: #ededed;
+  }
+
+  .chip {
+    background: #1e1b4b;
+    color: #c7d2fe;
+    border-color: #312e81;
+  }
+
+  .chipRemove {
+    color: #c7d2fe;
+  }
+
+  .chipRemove:hover {
+    background: rgba(199, 210, 254, 0.15);
   }
 }

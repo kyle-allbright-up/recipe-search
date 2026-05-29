@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
-import type { Recipe, RecipeType } from "@/lib/recipes";
+import { matchesAllTerms, type Recipe, type RecipeType } from "@/lib/recipes";
 
 type EditDraft = {
   name: string;
@@ -49,7 +49,9 @@ export default function Home() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actor, setActor] = useState<string | null>(null);
 
-  const [search, setSearch] = useState("");
+  const [keywordTerms, setKeywordTerms] = useState<string[]>([]);
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const [aiQuery, setAiQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
   const [recipeType, setRecipeType] = useState<RecipeType>("food");
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
@@ -60,6 +62,7 @@ export default function Home() {
   const [aiIndices, setAiIndices] = useState<string[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const chipInputRef = useRef<HTMLInputElement>(null);
 
   const reloadRecipes = useCallback(async () => {
     setLoadError(null);
@@ -111,30 +114,78 @@ export default function Home() {
     [descriptions]
   );
 
-  const keywordTerms = useMemo(
-    () =>
-      search
-        .split(",")
-        .map((t) => t.trim().toLowerCase())
-        .filter(Boolean),
-    [search]
-  );
+  // Pre-compute a single lowercased haystack per recipe so adding new terms
+  // doesn't pay the string-build cost on every keystroke. Keyed by recipe ID
+  // via type+ref equality on `typedRecipes` so it invalidates correctly when
+  // a recipe is edited/deleted.
+  const haystacks = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of typedRecipes) {
+      map.set(
+        r.id,
+        [r.name, r.ingredients.join(" \n "), r.instructions, r.comments, r.category]
+          .join(" \n ")
+          .toLowerCase()
+      );
+    }
+    return map;
+  }, [typedRecipes]);
+
+  // Effective keyword terms: committed chips plus the current draft if the
+  // user has started typing one. That way results update live before they
+  // hit Enter.
+  const effectiveKeywordTerms = useMemo(() => {
+    const draft = keywordDraft.trim();
+    if (!draft) return keywordTerms;
+    return [...keywordTerms, draft];
+  }, [keywordTerms, keywordDraft]);
 
   const keywordFiltered = useMemo(() => {
-    if (keywordTerms.length === 0) return typedRecipes;
-    return typedRecipes.filter((r) => {
-      const haystack = [
-        r.name,
-        r.ingredients.join(" \n "),
-        r.instructions,
-        r.comments,
-        r.category,
-      ]
-        .join(" \n ")
-        .toLowerCase();
-      return keywordTerms.every((term) => haystack.includes(term));
-    });
-  }, [keywordTerms, typedRecipes]);
+    if (effectiveKeywordTerms.length === 0) return typedRecipes;
+    return typedRecipes.filter((r) =>
+      matchesAllTerms(haystacks.get(r.id) ?? "", effectiveKeywordTerms)
+    );
+  }, [effectiveKeywordTerms, typedRecipes, haystacks]);
+
+  const commitDraftTerm = useCallback(
+    (raw?: string) => {
+      const source = raw ?? keywordDraft;
+      // Allow comma-separated bulk paste: "olives, bread, lemon" → 3 chips.
+      const additions = source
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (additions.length === 0) {
+        setKeywordDraft("");
+        return;
+      }
+      setKeywordTerms((prev) => {
+        const seen = new Set(prev.map((t) => t.toLowerCase()));
+        const merged = [...prev];
+        for (const a of additions) {
+          if (!seen.has(a.toLowerCase())) {
+            merged.push(a);
+            seen.add(a.toLowerCase());
+          }
+        }
+        return merged;
+      });
+      setKeywordDraft("");
+      setAiIndices(null);
+    },
+    [keywordDraft]
+  );
+
+  const removeTerm = useCallback((term: string) => {
+    setKeywordTerms((prev) => prev.filter((t) => t !== term));
+    setAiIndices(null);
+  }, []);
+
+  const clearAllTerms = useCallback(() => {
+    setKeywordTerms([]);
+    setKeywordDraft("");
+    setAiIndices(null);
+  }, []);
 
   const aiFiltered = useMemo(() => {
     if (searchMode !== "ai" || aiIndices === null) return null;
@@ -149,7 +200,7 @@ export default function Home() {
   }, [filtered, loadDescription]);
 
   const runAiSearch = useCallback(async () => {
-    if (!search.trim() || typedRecipes.length === 0) return;
+    if (!aiQuery.trim() || typedRecipes.length === 0) return;
     setAiLoading(true);
     setAiIndices(null);
     try {
@@ -166,7 +217,7 @@ export default function Home() {
       const res = await fetch("/api/meal-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: search, recipes: payload }),
+        body: JSON.stringify({ query: aiQuery, recipes: payload }),
       });
       if (!res.ok) {
         setAiIndices([]);
@@ -181,7 +232,7 @@ export default function Home() {
     } finally {
       setAiLoading(false);
     }
-  }, [search, typedRecipes, descriptions]);
+  }, [aiQuery, typedRecipes, descriptions]);
 
   const startEditing = (r: Recipe) => {
     setEditingId(r.id);
@@ -336,29 +387,95 @@ export default function Home() {
             </label>
           </div>
           <div className={styles.searchInputRow}>
-            <input
-              type="text"
-              placeholder={
-                searchMode === "ai"
-                  ? "e.g. light lunch, comfort food, quick weeknight dinner..."
-                  : "Search by name or ingredients (comma-separate, e.g. chicken, garlic, lemon)..."
-              }
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setAiIndices(null);
-              }}
-              className={styles.searchInput}
-              onKeyDown={(e) => {
-                if (searchMode === "ai" && e.key === "Enter") runAiSearch();
-              }}
-            />
+            {searchMode === "keyword" ? (
+              <div
+                className={styles.chipInputWrap}
+                onClick={() => chipInputRef.current?.focus()}
+                role="search"
+              >
+                {keywordTerms.map((term) => (
+                  <span key={term} className={styles.chip}>
+                    {term}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${term}`}
+                      className={styles.chipRemove}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeTerm(term);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={chipInputRef}
+                  type="text"
+                  className={styles.chipDraftInput}
+                  placeholder={
+                    keywordTerms.length === 0
+                      ? "Type an ingredient and hit Enter (e.g. olives → bread → lemon)…"
+                      : "Add another ingredient…"
+                  }
+                  value={keywordDraft}
+                  onChange={(e) => setKeywordDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitDraftTerm();
+                    } else if (e.key === "," || e.key === "Tab") {
+                      if (keywordDraft.trim()) {
+                        e.preventDefault();
+                        commitDraftTerm();
+                      }
+                    } else if (
+                      e.key === "Backspace" &&
+                      keywordDraft.length === 0 &&
+                      keywordTerms.length > 0
+                    ) {
+                      e.preventDefault();
+                      removeTerm(keywordTerms[keywordTerms.length - 1]);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (keywordDraft.trim()) commitDraftTerm();
+                  }}
+                />
+                {keywordTerms.length > 0 && (
+                  <button
+                    type="button"
+                    className={styles.chipClearAll}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearAllTerms();
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder="e.g. light lunch, comfort food, quick weeknight dinner..."
+                value={aiQuery}
+                onChange={(e) => {
+                  setAiQuery(e.target.value);
+                  setAiIndices(null);
+                }}
+                className={styles.searchInput}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runAiSearch();
+                }}
+              />
+            )}
             {searchMode === "ai" && (
               <button
                 type="button"
                 className={styles.aiSearchBtn}
                 onClick={runAiSearch}
-                disabled={aiLoading || !search.trim()}
+                disabled={aiLoading || !aiQuery.trim()}
               >
                 {aiLoading ? "Searching…" : "Search"}
               </button>

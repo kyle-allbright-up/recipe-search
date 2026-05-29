@@ -117,3 +117,103 @@ export function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 }
+
+// --- Fuzzy ingredient matching ------------------------------------------------
+//
+// Matches a single user-typed term ("olive", "tomatos", "lemn") against a
+// pre-lowercased haystack of recipe text. Strategy, cheapest first:
+//   1. Direct substring match (covers most well-typed queries).
+//   2. Plural toggle (drop trailing s/es, or add trailing s) - covers
+//      olive/olives, tomato/tomatoes, lemon/lemons.
+//   3. Word-level edit-distance match for typo tolerance: for every "word"
+//      in the haystack, check if it's within Levenshtein distance 1 of the
+//      term (only for terms >= 4 chars, to avoid matching "a" -> "i").
+//
+// This is intentionally not a full vector/embedding match - it's fast,
+// predictable, and good enough for ingredient-style queries.
+
+function singularize(word: string): string {
+  if (word.length > 3 && word.endsWith("ies")) return word.slice(0, -3) + "y";
+  if (word.length > 2 && word.endsWith("es")) return word.slice(0, -2);
+  if (word.length > 1 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
+function pluralize(word: string): string {
+  if (word.endsWith("y") && word.length > 2 && !"aeiou".includes(word[word.length - 2])) {
+    return word.slice(0, -1) + "ies";
+  }
+  if (/[sxz]$|[cs]h$/.test(word)) return word + "es";
+  return word + "s";
+}
+
+function editDistanceAtMost(a: string, b: string, max: number): boolean {
+  // Early-exit Levenshtein. Returns true iff distance <= max.
+  if (Math.abs(a.length - b.length) > max) return false;
+  if (a === b) return true;
+  const n = a.length;
+  const m = b.length;
+  // Two-row DP, with row-min early exit.
+  let prev = new Array(m + 1);
+  let curr = new Array(m + 1);
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= m; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > max) return false;
+    [prev, curr] = [curr, prev];
+  }
+  return prev[m] <= max;
+}
+
+export type FuzzyOptions = {
+  /** Allow edit-distance matching for terms of at least this length. */
+  fuzzyMinLength?: number;
+  /** Max edit distance for fuzzy matches. */
+  fuzzyMaxDistance?: number;
+};
+
+export function fuzzyContains(
+  haystackLower: string,
+  termLower: string,
+  opts: FuzzyOptions = {}
+): boolean {
+  const term = termLower.trim();
+  if (!term) return true;
+  if (haystackLower.includes(term)) return true;
+
+  const sing = singularize(term);
+  if (sing !== term && haystackLower.includes(sing)) return true;
+  const plur = pluralize(term);
+  if (plur !== term && haystackLower.includes(plur)) return true;
+
+  const fuzzyMin = opts.fuzzyMinLength ?? 4;
+  if (term.length < fuzzyMin) return false;
+  const maxDist = opts.fuzzyMaxDistance ?? 1;
+
+  // Token-level edit-distance fallback. Only worth doing for multi-letter
+  // terms - we already covered exact substrings above.
+  const tokens = haystackLower.split(/[^a-z0-9]+/);
+  for (const tok of tokens) {
+    if (!tok || tok.length < fuzzyMin) continue;
+    if (editDistanceAtMost(tok, term, maxDist)) return true;
+    if (editDistanceAtMost(tok, sing, maxDist)) return true;
+  }
+  return false;
+}
+
+export function matchesAllTerms(
+  haystackLower: string,
+  terms: string[],
+  opts: FuzzyOptions = {}
+): boolean {
+  for (const t of terms) {
+    if (!fuzzyContains(haystackLower, t.toLowerCase(), opts)) return false;
+  }
+  return true;
+}
