@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { head, put } from "@vercel/blob";
+import { getActor } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const CACHE_PATH = "recipes/description-cache.json";
@@ -36,6 +39,8 @@ async function writeCache(cache: DescriptionCache): Promise<void> {
 }
 
 export async function POST(request: Request) {
+  const actor = await getActor();
+  if (!actor) return NextResponse.json({ error: "Login required." }, { status: 401 });
   const { name, ingredients } = await request.json();
   if (!name || !ingredients) {
     return NextResponse.json(

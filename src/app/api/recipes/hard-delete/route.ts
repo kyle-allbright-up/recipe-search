@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActor, verifyPasswordOnly } from "@/lib/auth";
+import { requireAdmin, verifyActorPassword } from "@/lib/auth";
 import { hardDeleteRecipe } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
 // depth, but we short-circuit auth and password checks here so we can return
 // useful error messages.
 export async function POST(request: Request) {
-  const actor = await getActor();
-  if (!actor) return NextResponse.json({ error: "Admin login required." }, { status: 401 });
+  const actor = await requireAdmin();
+  if (!actor) return NextResponse.json({ error: "Admin required." }, { status: 401 });
 
   let body: Record<string, unknown>;
   try {
@@ -35,13 +35,13 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!verifyPasswordOnly(password)) {
+  if (!(await verifyActorPassword(actor, password))) {
     return NextResponse.json({ error: "Incorrect admin password." }, { status: 401 });
   }
 
   const result = await hardDeleteRecipe(
     { id, typedName, passwordReentered: true, doubleConfirmed: doubleConfirm },
-    actor
+    actor.email
   );
   if (!result.ok) {
     return NextResponse.json({ error: result.reason }, { status: 400 });

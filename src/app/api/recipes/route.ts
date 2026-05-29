@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 import { createRecipe, listRecipes } from "@/lib/store";
 import { normalizeIngredients, normalizeInstructions } from "@/lib/recipes";
-import { getActor } from "@/lib/auth";
+import { getActor, requireAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const actor = await getActor();
+  if (!actor) {
+    return NextResponse.json({ error: "Login required." }, { status: 401 });
+  }
   const recipes = await listRecipes();
   return NextResponse.json({ recipes });
 }
 
 export async function POST(request: Request) {
-  const actor = await getActor();
+  const actor = await requireAdmin();
   if (!actor) {
-    return NextResponse.json({ error: "Admin login required." }, { status: 401 });
+    return NextResponse.json({ error: "Admin required." }, { status: 401 });
   }
   let body: unknown;
   try {
@@ -50,7 +54,7 @@ export async function POST(request: Request) {
       tried: Boolean(draft.tried),
       greenBook: Boolean(draft.greenBook),
     },
-    actor
+    actor.email
   );
   return NextResponse.json({ recipe }, { status: 201 });
 }

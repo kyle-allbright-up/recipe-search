@@ -1,32 +1,29 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import {
-  SESSION_COOKIE,
-  createSessionToken,
-  sessionCookieOptions,
-  verifyCredentials,
-} from "@/lib/auth";
+import { SESSION_COOKIE, createSessionToken, sessionCookieOptions } from "@/lib/auth";
+import { authenticate } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  let body: { username?: string; password?: string };
+  let body: { email?: string; password?: string };
   try {
-    body = (await request.json()) as { username?: string; password?: string };
+    body = (await request.json()) as { email?: string; password?: string };
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
-  const username = String(body.username ?? "");
+  const email = String(body.email ?? "").trim();
   const password = String(body.password ?? "");
-  if (!username || !password) {
-    return NextResponse.json({ error: "Username and password required." }, { status: 400 });
+  if (!email || !password) {
+    return NextResponse.json({ error: "Email and password required." }, { status: 400 });
   }
-  if (!verifyCredentials(username, password)) {
-    return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
+  const result = await authenticate(email, password);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.reason }, { status: 401 });
   }
-  const token = createSessionToken(username);
+  const token = createSessionToken(result.user.email);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, sessionCookieOptions());
-  return NextResponse.json({ ok: true, actor: username });
+  return NextResponse.json({ ok: true, user: result.user });
 }

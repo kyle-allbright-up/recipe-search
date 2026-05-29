@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActor } from "@/lib/auth";
+import { getActor, requireAdmin } from "@/lib/auth";
 import { getRecipe, softDeleteRecipe, updateRecipe, type RecipePatch } from "@/lib/store";
 import { normalizeIngredients, normalizeInstructions } from "@/lib/recipes";
 
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: RouteContext) {
+  const actor = await getActor();
+  if (!actor) return NextResponse.json({ error: "Login required." }, { status: 401 });
   const { id } = await params;
   const recipe = await getRecipe(id);
   if (!recipe) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -16,8 +18,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
-  const actor = await getActor();
-  if (!actor) return NextResponse.json({ error: "Admin login required." }, { status: 401 });
+  const actor = await requireAdmin();
+  if (!actor) return NextResponse.json({ error: "Admin required." }, { status: 401 });
   const { id } = await params;
 
   let body: Record<string, unknown>;
@@ -46,16 +48,16 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (typeof body.tried === "boolean") patch.tried = body.tried;
   if (typeof body.greenBook === "boolean") patch.greenBook = body.greenBook;
 
-  const updated = await updateRecipe(id, patch, actor);
+  const updated = await updateRecipe(id, patch, actor.email);
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ recipe: updated });
 }
 
 export async function DELETE(_request: Request, { params }: RouteContext) {
-  const actor = await getActor();
-  if (!actor) return NextResponse.json({ error: "Admin login required." }, { status: 401 });
+  const actor = await requireAdmin();
+  if (!actor) return NextResponse.json({ error: "Admin required." }, { status: 401 });
   const { id } = await params;
-  const trashed = await softDeleteRecipe(id, actor);
+  const trashed = await softDeleteRecipe(id, actor.email);
   if (!trashed) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ recipe: trashed, message: "Moved to trash." });
 }

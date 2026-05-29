@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getActor } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -11,6 +14,8 @@ type RecipeSummary = {
 };
 
 export async function POST(request: Request) {
+  const actor = await getActor();
+  if (!actor) return NextResponse.json({ error: "Login required." }, { status: 401 });
   const { query, recipes } = await request.json();
   if (!query || !Array.isArray(recipes)) {
     return NextResponse.json(

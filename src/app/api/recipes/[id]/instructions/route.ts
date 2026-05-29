@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { getActor } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { getRecipe, updateRecipe } from "@/lib/store";
 import { normalizeInstructions } from "@/lib/recipes";
 
@@ -12,8 +12,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(_request: Request, { params }: RouteContext) {
-  const actor = await getActor();
-  if (!actor) return NextResponse.json({ error: "Admin login required." }, { status: 401 });
+  const actor = await requireAdmin();
+  if (!actor) return NextResponse.json({ error: "Admin required." }, { status: 401 });
   if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json({ error: "OPENAI_API_KEY is not configured." }, { status: 500 });
   }
@@ -54,7 +54,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: "Empty response from model." }, { status: 502 });
     }
     const instructions = normalizeInstructions(text);
-    const updated = await updateRecipe(id, { instructions }, actor);
+    const updated = await updateRecipe(id, { instructions }, actor.email);
     return NextResponse.json({ recipe: updated });
   } catch (err) {
     console.error(err);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { listTrash } from "@/lib/store";
+import { listUsers } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +8,6 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const actor = await requireAdmin();
   if (!actor) return NextResponse.json({ error: "Admin required." }, { status: 401 });
-  const trash = await listTrash();
-  return NextResponse.json({ trash });
+  const users = await listUsers();
+  return NextResponse.json({ users });
 }
