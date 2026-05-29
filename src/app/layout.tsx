@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forkcast — Your Recipe Compass",
+  title: "Palate — A Pocket Recipe Book",
   description:
-    "Search a pantry full of food and drink recipes by name, ingredient, or vibe.",
+    "Search a personal collection of recipes — dinners, sides, desserts, and cocktails — by name, ingredient, or vibe.",
 };
 
 export default function RootLayout({

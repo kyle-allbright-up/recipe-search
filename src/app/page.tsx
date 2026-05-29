@@ -322,7 +322,7 @@ export default function Home() {
       <main className={styles.main}>
         <div className={styles.headerRow}>
           <div className={styles.intro}>
-            <h1>Forkcast</h1>
+            <h1>Palate</h1>
           </div>
           <div className={styles.adminBar}>
             {actor ? (
