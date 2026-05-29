@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { deleteUser, getUserById } from "@/lib/users";
+import { deleteUser, getUserById, SuperAdminProtectedError } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,14 @@ export async function DELETE(_req: Request, { params }: RouteContext) {
       { status: 400 }
     );
   }
-  const removed = await deleteUser(id, actor.email);
-  if (!removed) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, deleted: removed.email });
+  try {
+    const removed = await deleteUser(id, actor.email);
+    if (!removed) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, deleted: removed.email });
+  } catch (err) {
+    if (err instanceof SuperAdminProtectedError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
 }

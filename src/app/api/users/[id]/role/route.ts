@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { setUserTier, type UserTier } from "@/lib/users";
+import { setUserTier, SuperAdminProtectedError, type UserTier } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,14 @@ export async function POST(req: Request, { params }: RouteContext) {
       { status: 400 }
     );
   }
-  const updated = await setUserTier(id, tier, actor.email);
-  if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ user: updated });
+  try {
+    const updated = await setUserTier(id, tier, actor.email);
+    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ user: updated });
+  } catch (err) {
+    if (err instanceof SuperAdminProtectedError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
 }

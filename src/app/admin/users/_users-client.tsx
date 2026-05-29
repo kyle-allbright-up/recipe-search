@@ -174,12 +174,26 @@ export default function UsersClient({ actor }: Props) {
             ) : (
               list.map((u) => {
                 const isSelf = u.id === actor.id;
+                // The super admin is the immutable owner of the app: no
+                // other admin (and not even themselves) can change their
+                // tier, status, or delete them. We hide the destructive
+                // actions for that row entirely.
+                const isProtected = u.isSuperAdmin;
                 return (
                   <div key={u.id} className={styles.userCard}>
                     <div className={styles.userInfo}>
                       <p className={styles.userName}>
                         {u.firstName} {u.lastName}
                         {isSelf && <span className={styles.you} style={{ marginLeft: 8 }}>you</span>}
+                        {isProtected && (
+                          <span
+                            className={`${styles.tierChip} ${styles.tierAdmin}`}
+                            style={{ marginLeft: 8 }}
+                            title="The super admin account is permanently protected and can't be modified."
+                          >
+                            super admin
+                          </span>
+                        )}
                       </p>
                       <p className={styles.userMeta}>
                         <span>{u.email}</span>
@@ -208,85 +222,99 @@ export default function UsersClient({ actor }: Props) {
                       </p>
                     </div>
                     <div className={styles.userActions}>
-                      {section.key === "pending" && (
+                      {isProtected ? (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "var(--text-secondary, #888)",
+                            fontStyle: "italic",
+                          }}
+                        >
+                          Protected — cannot be modified
+                        </span>
+                      ) : (
                         <>
-                          <button
-                            type="button"
-                            className={`${styles.btn} ${styles.approveBtn}`}
-                            onClick={() => act(u, "approve")}
-                            disabled={busyId === u.id}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className={`${styles.btn} ${styles.declineBtn}`}
-                            onClick={() => act(u, "decline")}
-                            disabled={busyId === u.id || isSelf}
-                          >
-                            Decline
-                          </button>
-                        </>
-                      )}
-                      {section.key === "approved" && (
-                        <>
-                          {u.tier === "general" ? (
+                          {section.key === "pending" && (
+                            <>
+                              <button
+                                type="button"
+                                className={`${styles.btn} ${styles.approveBtn}`}
+                                onClick={() => act(u, "approve")}
+                                disabled={busyId === u.id}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.btn} ${styles.declineBtn}`}
+                                onClick={() => act(u, "decline")}
+                                disabled={busyId === u.id || isSelf}
+                              >
+                                Decline
+                              </button>
+                            </>
+                          )}
+                          {section.key === "approved" && (
+                            <>
+                              {u.tier === "general" ? (
+                                <button
+                                  type="button"
+                                  className={styles.btn}
+                                  onClick={() => act(u, "promote")}
+                                  disabled={busyId === u.id}
+                                >
+                                  Promote to admin
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={styles.btn}
+                                  onClick={() => act(u, "demote")}
+                                  disabled={busyId === u.id || isSelf}
+                                >
+                                  Demote to general
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className={`${styles.btn} ${styles.declineBtn}`}
+                                onClick={() => act(u, "disable")}
+                                disabled={busyId === u.id || isSelf}
+                              >
+                                Disable
+                              </button>
+                            </>
+                          )}
+                          {section.key === "declined" && (
                             <button
                               type="button"
-                              className={styles.btn}
-                              onClick={() => act(u, "promote")}
+                              className={`${styles.btn} ${styles.approveBtn}`}
+                              onClick={() => act(u, "approve")}
                               disabled={busyId === u.id}
                             >
-                              Promote to admin
+                              Approve anyway
                             </button>
-                          ) : (
+                          )}
+                          {section.key === "disabled" && (
                             <button
                               type="button"
-                              className={styles.btn}
-                              onClick={() => act(u, "demote")}
-                              disabled={busyId === u.id || isSelf}
+                              className={`${styles.btn} ${styles.approveBtn}`}
+                              onClick={() => act(u, "approve")}
+                              disabled={busyId === u.id}
                             >
-                              Demote to general
+                              Re-enable
                             </button>
                           )}
                           <button
                             type="button"
-                            className={`${styles.btn} ${styles.declineBtn}`}
-                            onClick={() => act(u, "disable")}
+                            className={`${styles.btn} ${styles.deleteBtn}`}
+                            onClick={() => act(u, "delete")}
                             disabled={busyId === u.id || isSelf}
                           >
-                            Disable
+                            Delete
                           </button>
                         </>
                       )}
-                      {section.key === "declined" && (
-                        <button
-                          type="button"
-                          className={`${styles.btn} ${styles.approveBtn}`}
-                          onClick={() => act(u, "approve")}
-                          disabled={busyId === u.id}
-                        >
-                          Approve anyway
-                        </button>
-                      )}
-                      {section.key === "disabled" && (
-                        <button
-                          type="button"
-                          className={`${styles.btn} ${styles.approveBtn}`}
-                          onClick={() => act(u, "approve")}
-                          disabled={busyId === u.id}
-                        >
-                          Re-enable
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className={`${styles.btn} ${styles.deleteBtn}`}
-                        onClick={() => act(u, "delete")}
-                        disabled={busyId === u.id || isSelf}
-                      >
-                        Delete
-                      </button>
                     </div>
                   </div>
                 );

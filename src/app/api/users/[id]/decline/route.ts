@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { declineUser } from "@/lib/users";
+import { declineUser, SuperAdminProtectedError } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,14 @@ export async function POST(_req: Request, { params }: RouteContext) {
   if (id === actor.id) {
     return NextResponse.json({ error: "You can't decline yourself." }, { status: 400 });
   }
-  const updated = await declineUser(id, actor.email);
-  if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ user: updated });
+  try {
+    const updated = await declineUser(id, actor.email);
+    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ user: updated });
+  } catch (err) {
+    if (err instanceof SuperAdminProtectedError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
 }

@@ -21,8 +21,20 @@ export type User = {
   lastLoginAt?: string;
 };
 
-// Returned to the client - never includes passwordHash.
-export type SafeUser = Omit<User, "passwordHash">;
+// Returned to the client - never includes passwordHash. `isSuperAdmin` is
+// computed from the email, not stored, so we can't accidentally toggle it.
+export type SafeUser = Omit<User, "passwordHash"> & { isSuperAdmin: boolean };
+
+// The super admin email is the "owner" of the app: their tier and status
+// are immutable, they can't be deleted, and the user store heals itself
+// to keep them present and approved on every load.
+export const SUPER_ADMIN_EMAIL = (
+  process.env.SUPER_ADMIN_EMAIL ?? "ky.allbright@gmail.com"
+).toLowerCase();
+
+export function isSuperAdmin(user: { email: string }): boolean {
+  return user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
 export type UserStoreSnapshot = {
   version: number;
@@ -141,17 +153,78 @@ async function backupSnapshot(snapshot: UserStoreSnapshot): Promise<void> {
   }
 }
 
+function buildSuperAdminRecord(): User {
+  const seedDef = SEED_USERS.find((s) => s.email.toLowerCase() === SUPER_ADMIN_EMAIL);
+  const now = nowIso();
+  return {
+    id: randomUUID(),
+    email: SUPER_ADMIN_EMAIL,
+    firstName: seedDef?.firstName ?? "Owner",
+    lastName: seedDef?.lastName ?? "",
+    // If the seed list is ever changed to omit the super admin's password,
+    // we fall back to a random unguessable one. The owner can always reset
+    // via env or by manually editing the blob.
+    passwordHash: hashPassword(
+      seedDef?.password ?? `recovery-${randomUUID()}-${randomUUID()}`
+    ),
+    tier: "admin",
+    status: "approved",
+    createdAt: now,
+    approvedAt: now,
+    approvedBy: "system:seed",
+  };
+}
+
+// Make sure the super admin is always present, always tier=admin, always
+// approved. Returns the snapshot unchanged when nothing needs fixing so
+// callers can use referential equality to detect a write.
+function healSuperAdmin(snap: UserStoreSnapshot): UserStoreSnapshot {
+  const existing = snap.users.find((u) => u.email === SUPER_ADMIN_EMAIL);
+  if (!existing) {
+    return { ...snap, users: [...snap.users, buildSuperAdminRecord()] };
+  }
+  if (existing.tier === "admin" && existing.status === "approved") {
+    return snap;
+  }
+  return {
+    ...snap,
+    users: snap.users.map((u) =>
+      u.email === SUPER_ADMIN_EMAIL
+        ? { ...u, tier: "admin", status: "approved" }
+        : u
+    ),
+  };
+}
+
 async function loadSnapshot(): Promise<UserStoreSnapshot> {
   if (snapshotCache) return snapshotCache;
   const remote = await readJson<UserStoreSnapshot>(SNAPSHOT_PATH);
-  if (remote) {
-    snapshotCache = remote;
-    return remote;
+  const base = remote ?? buildSeed();
+  const healed = healSuperAdmin(base);
+  if (healed !== base && hasBlob()) {
+    // Persist the heal without going through commit() because there's no
+    // human actor to audit. We just want to keep the protection durable.
+    healed.updatedAt = nowIso();
+    await writeJson(SNAPSHOT_PATH, healed);
+  } else if (!remote && hasBlob()) {
+    await writeJson(SNAPSHOT_PATH, healed);
   }
-  const seeded = buildSeed();
-  if (hasBlob()) await writeJson(SNAPSHOT_PATH, seeded);
-  snapshotCache = seeded;
-  return seeded;
+  snapshotCache = healed;
+  return healed;
+}
+
+export class SuperAdminProtectedError extends Error {
+  constructor() {
+    super("The super admin account is protected and can't be modified.");
+    this.name = "SuperAdminProtectedError";
+  }
+}
+
+async function assertNotSuperAdmin(id: string): Promise<void> {
+  const target = await getUserById(id);
+  if (target && isSuperAdmin(target)) {
+    throw new SuperAdminProtectedError();
+  }
 }
 
 async function loadAudit(): Promise<UserAuditEntry[]> {
@@ -191,6 +264,7 @@ export function toSafeUser(u: User): SafeUser {
     declinedAt: u.declinedAt,
     declinedBy: u.declinedBy,
     lastLoginAt: u.lastLoginAt,
+    isSuperAdmin: isSuperAdmin(u),
   };
 }
 
@@ -345,7 +419,8 @@ export function approveUser(id: string, actor: string): Promise<SafeUser | null>
   }));
 }
 
-export function declineUser(id: string, actor: string): Promise<SafeUser | null> {
+export async function declineUser(id: string, actor: string): Promise<SafeUser | null> {
+  await assertNotSuperAdmin(id);
   return mutateUser(id, actor, "decline", (u) => ({
     ...u,
     status: "declined",
@@ -354,15 +429,17 @@ export function declineUser(id: string, actor: string): Promise<SafeUser | null>
   }));
 }
 
-export function disableUser(id: string, actor: string): Promise<SafeUser | null> {
+export async function disableUser(id: string, actor: string): Promise<SafeUser | null> {
+  await assertNotSuperAdmin(id);
   return mutateUser(id, actor, "disable", (u) => ({ ...u, status: "disabled" }));
 }
 
-export function setUserTier(
+export async function setUserTier(
   id: string,
   tier: UserTier,
   actor: string
 ): Promise<SafeUser | null> {
+  await assertNotSuperAdmin(id);
   return mutateUser(
     id,
     actor,
@@ -376,6 +453,7 @@ export async function deleteUser(
   id: string,
   actor: string
 ): Promise<SafeUser | null> {
+  await assertNotSuperAdmin(id);
   const snap = await loadSnapshot();
   const idx = snap.users.findIndex((u) => u.id === id);
   if (idx === -1) return null;
